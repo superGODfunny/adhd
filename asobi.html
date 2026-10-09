@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>ウェブ版 ラグジュアリー・パーティクル</title>
+    <style>
+        /* 画面いっぱいに広げてスクロールバーを消す */
+        body { margin: 0; overflow: hidden; background-color: #0f0f14; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <!-- ここにJavaScriptで絵を描画します -->
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("gameCanvas");
+        const ctx = canvas.getContext("2d");
+
+        // 画面サイズをウィンドウいっぱいに合わせる
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let particles = [];
+        let globalHue = 0;
+        let isLeftClickActive = false;
+        let isRightClickActive = false;
+        let lastMousePos = null;
+        let mousePos = { x: 0, y: 0 };
+
+        // 【オブジェクト指向】粒の設計図
+        class Particle {
+            constructor(x, y, hue) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 2.0; // 横の速度
+                this.vy = (Math.random() - 0.5) * 2.0; // 縦の速度
+                this.radius = Math.random() * 12 + 2;
+                this.life = 255;
+                this.hue = hue;
+            }
+            
+            update(blackholePos) {
+                if (blackholePos) {
+                    const dx = blackholePos.x - this.x;
+                    const dy = blackholePos.y - this.y;
+                    const distance = Math.hypot(dx, dy);
+                    if (distance > 0) {
+                        const force = 300 / (distance); 
+                        this.vx += (dx / distance) * force * 0.1;
+                        this.vy += (dy / distance) * force * 0.1;
+                    }
+                }
+                this.vx *= 0.95;
+                this.vy *= 0.95;
+                this.x += this.vx;
+                this.y += this.vy;
+                this.life -= 0.3;
+                this.radius -= 0;
+            }
+            
+            draw(ctx) {
+                if (this.life > 0 && this.radius > 0) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                    // HSL（色相、彩度、明度）で色を指定
+                    ctx.fillStyle = `hsla(${this.hue}, 100%, 60%, ${this.life / 255})`;
+                    ctx.fill();
+                }
+            }
+        }
+
+        function spawnParticles(x, y, hue) {
+            for (let i = 0; i < 2; i++) {
+                particles.push(new Particle(x, y, hue));
+            }
+        }
+
+        // === マウス操作の検知 ===
+        window.addEventListener("mousedown", (e) => {
+            if (e.button === 0) { // 0が左クリック
+                isLeftClickActive = true;
+                spawnParticles(e.clientX, e.clientY, globalHue);
+            } else if (e.button === 2) { // 2が右クリック
+                isRightClickActive = true;
+            }
+        });
+
+        window.addEventListener("mouseup", (e) => {
+            if (e.button === 0) isLeftClickActive = false;
+            else if (e.button === 2) isRightClickActive = false;
+        });
+
+        window.addEventListener("mousemove", (e) => {
+            mousePos.x = e.clientX;
+            mousePos.y = e.clientY;
+            
+            if (isLeftClickActive) {
+                if (lastMousePos) {
+                    const dist_x = mousePos.x - lastMousePos.x;
+                    const dist_y = mousePos.y - lastMousePos.y;
+                    const distance = Math.hypot(dist_x, dist_y);
+                    const step_size = 5;
+                    
+                    // 隙間を補間して線を引く
+                    if (distance > step_size) {
+                        const steps = Math.floor(distance / step_size);
+                        for (let i = 1; i <= steps; i++) {
+                            const interp_x = lastMousePos.x + dist_x * (i / steps);
+                            const interp_y = lastMousePos.y + dist_y * (i / steps);
+                            spawnParticles(interp_x, interp_y, globalHue);
+                        }
+                    } else {
+                        spawnParticles(mousePos.x, mousePos.y, globalHue);
+                    }
+                }
+            }
+            lastMousePos = { x: mousePos.x, y: mousePos.y };
+        });
+
+        // 右クリック時にブラウザ標準のメニューが出ないようにする
+        window.addEventListener("contextmenu", (e) => e.preventDefault());
+
+        // ウィンドウサイズが変更されたらキャンバスの大きさも合わせる
+        window.addEventListener("resize", () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        // === メインループ（描画処理） ===
+        function animate() {
+            // 背景を塗りつぶして前のフレームを消す
+            ctx.globalCompositeOperation = "source-over";
+            ctx.fillStyle = "#0f0f14";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 【加算合成】PygameのBLEND_RGBA_ADDと同じ効果
+            ctx.globalCompositeOperation = "lighter";
+
+            // 色相を0〜360度でループさせる
+            globalHue = (globalHue + 5) % 360; 
+
+            let blackholePos = isRightClickActive ? mousePos : null;
+
+            // 逆順で処理して寿命が尽きた粒を消す
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.update(blackholePos);
+                p.draw(ctx);
+                if (p.life <= 0 || p.radius <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+
+            // モニターの性能（60Hzや120Hz）に合わせて最高速度でループし続ける命令
+            requestAnimationFrame(animate); 
+        }
+
+        // ループ開始！
+        animate(); 
+    </script>
+</body>
+</html>
